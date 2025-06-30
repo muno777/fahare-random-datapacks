@@ -12,6 +12,7 @@ import net.kyori.adventure.translation.GlobalTranslator;
 import net.kyori.adventure.translation.TranslationRegistry;
 import net.kyori.adventure.util.UTF8ResourceBundleControl;
 import org.bukkit.*;
+import org.bukkit.packs.*;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -27,11 +28,24 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.io.*;
+import java.net.URL;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonArray;
 
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE;
 import static net.kyori.adventure.text.Component.text;
@@ -185,6 +199,7 @@ public final class Fahare extends JavaPlugin implements Listener {
                 player.teleport(spawn);
             }
             resetting = false;
+            addRandomDatapack();
             return;
         }
 
@@ -229,6 +244,134 @@ public final class Fahare extends JavaPlugin implements Listener {
         }
 
         Bukkit.getScheduler().runTaskLater(this, () -> deleteNextWorld(worlds, backupDestination), 1);
+    }
+    
+    private void addRandomDatapack() {
+        String datapackFolderPath = Bukkit.getServer().getWorldContainer().getAbsolutePath() + "/world/datapacks";
+        File datapackFolder = new File(datapackFolderPath);
+        
+        for (DataPack data_pack : Bukkit.getServer().getDataPackManager().getDataPacks()) {
+            if (data_pack.getSource() == DataPack.Source.WORLD) {
+                // System.out.println("Title: " + data_pack.getTitle());
+                // System.out.println("Source: " + data_pack.getSource());
+                // System.out.println("Data: " + data_pack);
+                Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), "datapack disable \"file/" + data_pack.getTitle() + "\"");
+            }
+        }
+        
+        // delete all existing .zip datapacks
+		if (datapackFolder.isDirectory()) {
+			File[] files = datapackFolder.listFiles();
+			if (files != null) {
+				for (File file : files) {
+					if (file.isFile()) {
+						file.delete();
+					}
+				}
+			}
+		}
+        
+        // add datapacks
+        
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            
+            // Build the facets as a JSON string
+            String facetsJson = "[[\"versions:1.21.6\"],[\"categories:datapack\"]]";
+            String encodedFacets = URLEncoder.encode(facetsJson, StandardCharsets.UTF_8);
+
+            // Build the full URL with facets
+            String url = String.format("https://api.modrinth.com/v2/search?limit=1&facets=%s",
+                    encodedFacets
+            );
+
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(new URI(url))
+                .GET()
+                .build();
+            
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            int numberOfHits = JsonParser.parseString(response.body()).getAsJsonObject().get("total_hits").getAsInt();
+            
+            int datapacksToAdd = 10;
+            
+            List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
+            
+            for (Player player : players) {
+                player.removeResourcePacks();
+            }
+            
+            for (int i = 0; i < datapacksToAdd; i++) {
+                
+                int searchIndex = (int)(Math.random() * numberOfHits);
+
+                // Build the full URL with facets
+                url = String.format("https://api.modrinth.com/v2/search?limit=1&offset=%s&facets=%s",
+                        Integer.toString(searchIndex),
+                        encodedFacets
+                );
+
+                request = HttpRequest.newBuilder()
+                    .uri(new URI(url))
+                    .GET()
+                    .build();
+
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                
+                JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                
+                // System.out.println(json.getAsJsonArray("hits").get(0));
+
+                // Build the full URL with facets
+                url = String.format("https://api.modrinth.com/v2/project/%s/version?loaders=%s&game_versions=%s",
+                        json.getAsJsonArray("hits").get(0).getAsJsonObject().get("project_id").getAsString(),
+                        URLEncoder.encode("[\"datapack\"]", StandardCharsets.UTF_8),
+                        URLEncoder.encode("[\"1.21.6\"]", StandardCharsets.UTF_8)
+                );
+
+                request = HttpRequest.newBuilder()
+                    .uri(new URI(url))
+                    .GET()
+                    .build();
+
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                
+                json = JsonParser.parseString("{foo:" + response.body() + "}").getAsJsonObject();
+                
+                String fileURL = json.get("foo").getAsJsonArray().get(0).getAsJsonObject().get("files").getAsJsonArray().get(0).getAsJsonObject().get("url").getAsString();
+                // System.out.println(fileURL);
+                
+                for (Player player : players) {
+                    player.addResourcePack(UUID.randomUUID(), fileURL, (byte[]) null, null, true);
+                }
+                
+                // System.out.println("Status code: " + response.statusCode());
+                // System.out.println("Response body:\n" + response.body());
+                
+                try (InputStream in = new URL(fileURL).openStream()) {
+                    // Extract the file name from the URL
+                    String fileName = Paths.get(new URL(fileURL).getPath()).getFileName().toString();
+
+                    // Create full target path
+                    Path targetPath = Paths.get(datapackFolderPath, fileName);
+
+                    // Create directories if they don't exist
+                    Files.createDirectories(Paths.get(datapackFolderPath));
+
+                    // Copy input stream to the target path
+                    Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
+
+                    System.out.println("File downloaded to: " + targetPath);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("Failed to get datapacks");
+        }
+        
+        Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), "minecraft:reload");
     }
 
     public synchronized void reset() {

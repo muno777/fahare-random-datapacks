@@ -11,8 +11,8 @@ def mcVersion = '1.19.3'
 repositories {
     mavenCentral()
     maven {
-        name = "papermc-repo"
-        url = "https://repo.papermc.io/repository/maven-public/"
+        name = "papermc"
+        url = uri("https://repo.papermc.io/repository/maven-public/")
     }
     maven {
         name = "sonatype"
@@ -21,12 +21,12 @@ repositories {
 }
 
 dependencies {
-    compileOnly "io.papermc.paper:paper-api:$mcVersion-R0.1-SNAPSHOT"
+    compileOnly("io.papermc.paper:paper-api:1.21.6-R0.1-SNAPSHOT")
     implementation "cloud.commandframework:cloud-paper:1.8.4" // TODO: maybe move away from cloud to shed a megabyte of dependencies
     implementation "cloud.commandframework:cloud-minecraft-extras:1.8.4"
 }
 
-def targetJavaVersion = 17
+def targetJavaVersion = 21
 java {
     def javaVersion = JavaVersion.toVersion(targetJavaVersion)
     sourceCompatibility = javaVersion
