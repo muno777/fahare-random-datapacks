@@ -1,6 +1,6 @@
 # Whether to save and backup worlds before resetting.
 # When disabled, worlds will be permanently deleted upon reset (much faster).
-backup: true
+backup: false
 
 # Whether resets should happen automatically upon the death of all players.
 # When disabled, you may instead run `/fahare reset` to manually reset the world.
@@ -9,7 +9,20 @@ auto-reset: true
 # Whether to trigger a reset upon *any* death.
 # When disabled, automatic resets will trigger only when all players are dead.
 # This setting is ignored if `auto-reset` is disabled.
-any-death: false
+any-death: true
 
 # How many lives a player should have before they are considered dead.
 lives: 1
+
+# How many random datapacks to download each time the world resets.
+datapack-count: 10
+
+# In addition to the downloaded datapacks, have a random chance to also add each of these.
+# name should be the Modrinth ID or slug (name in project page url) for the datapack.
+# chance is between 0 and 1, e.g. 0.25 means 25% of the time.
+added-datapacks: [ 
+  { name: "terralith", chance: 0.5 },
+  { name: "incendium", chance: 0.5 },
+  { name: "nullscape", chance: 0.5 },
+  { name: "randomizer-complete-edition", chance: 0.15 },
+]

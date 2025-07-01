@@ -53,6 +53,16 @@ import static net.kyori.adventure.text.Component.translatable;
 
 public final class Fahare extends JavaPlugin implements Listener {
 
+    private class AddedDatapack {
+        String name;
+        float chance;
+
+        public AddedDatapack(String name, float chance) {
+            this.name = name;
+            this.chance = chance;
+        }
+    }
+
     private static final NamespacedKey REAL_OVERWORLD_KEY = NamespacedKey.minecraft("overworld");
     private static final Random RANDOM = new Random();
     private final NamespacedKey fakeOverworldKey = new NamespacedKey(this, "overworld");
@@ -67,6 +77,8 @@ public final class Fahare extends JavaPlugin implements Listener {
     private boolean autoReset = true;
     private boolean anyDeath = false;
     private int lives = 1;
+    private int datapackCount = 10;
+    private List<AddedDatapack> addedDatapacks = new ArrayList<>();
 
     private static @NotNull World overworld() {
         return Objects.requireNonNull(Bukkit.getWorld(REAL_OVERWORLD_KEY), "Overworld not found");
@@ -87,8 +99,6 @@ public final class Fahare extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         
-        System.out.println("I AM ENABLED");
-        
         // Load config
         loadConfig();
 
@@ -108,21 +118,11 @@ public final class Fahare extends JavaPlugin implements Listener {
         // Register i18n
         TranslationRegistry registry = TranslationRegistry.create(new NamespacedKey(this, "translations"));
         registry.defaultLocale(Locale.US);
-        for (Locale locale : List.of(Locale.US)) { // TODO: reflection
+        for (Locale locale : List.of(Locale.US)) {
             ResourceBundle bundle = ResourceBundle.getBundle("Fahare", locale, UTF8ResourceBundleControl.get());
             registry.registerAll(locale, bundle, false);
         }
         GlobalTranslator.translator().addSource(registry);
-
-        // Create limbo world
-        // WorldCreator creator = new WorldCreator(limboWorldKey)
-        //         .type(WorldType.FLAT)
-        //         .generateStructures(false)
-        //         .generatorSettings("{\"biome\":\"minecraft:the_end\",\"layers\":[{\"block\":\"minecraft:air\",\"height\":1}]}");
-        // limboWorld = creator.createWorld();
-
-        // Create fake overworld
-        // World fakeOverworld = createFakeOverworld();
 
         // Register commands
         try {
@@ -135,8 +135,6 @@ public final class Fahare extends JavaPlugin implements Listener {
             }
 
             // Commands
-            // TODO: help command
-            // TODO: i18n descriptions
             Command.Builder<CommandSender> cmd = commandManager.commandBuilder("fahare");
             commandManager.command(cmd
                     .literal("reset")
@@ -157,13 +155,6 @@ public final class Fahare extends JavaPlugin implements Listener {
 
         // Register events and tasks
         Bukkit.getPluginManager().registerEvents(this, this);
-        // Bukkit.getScheduler().runTaskTimer(this, () -> {
-        //     // Teleport players from real overworld
-        //     Location destination = fakeOverworld.getSpawnLocation();
-        //     for (Player player : overworld().getPlayers()) {
-        //         player.teleport(destination);
-        //     }
-        // }, 1, 1);
     }
 
     private void loadConfig() {
@@ -174,6 +165,14 @@ public final class Fahare extends JavaPlugin implements Listener {
         autoReset = config.getBoolean("auto-reset", autoReset);
         anyDeath = config.getBoolean("any-death", anyDeath);
         lives = Math.max(1, config.getInt("lives", lives));
+        datapackCount = config.getInt("datapackCount", datapackCount);
+        for (Map<?, ?> entry : config.getMapList("added-datapacks")) {
+            addedDatapacks.add(new AddedDatapack(
+                (String) entry.get("name"),
+                ((Number) entry.get("chance")).floatValue()
+            ));
+        }
+        // TODO get added-datapacks
     }
 
     public int getDeathsFor(UUID player) {
@@ -195,12 +194,6 @@ public final class Fahare extends JavaPlugin implements Listener {
     private void deleteNextWorld(List<World> worlds, @Nullable Path backupDestination) {
         // check if all worlds are deleted
         if (worlds.isEmpty()) {
-            // World overworld = fakeOverworld();
-            // Location spawn = overworld.getSpawnLocation();
-            // for (Player player : Bukkit.getOnlinePlayers()) {
-            //     player.setGameMode(GameMode.SURVIVAL);
-            //     player.teleport(spawn);
-            // }
             resetting = false;
             addRandomDatapack();
             return;
@@ -233,10 +226,6 @@ public final class Fahare extends JavaPlugin implements Listener {
                     getComponentLogger().info(translatable("fhr.log.info.delete", arg));
                     IOUtils.deleteDirectory(worldFolder);
                 }
-
-                // create new world
-                // creator.createWorld();
-                // Bukkit.getServer().sendMessage(translatable("fhr.chat.success", worldKey));
             } catch (Exception e) {
                 Component error = translatable("fhr.chat.error", NamedTextColor.RED, worldKey);
                 Audience.audience(Bukkit.getOnlinePlayers()).sendMessage(error);
@@ -255,9 +244,6 @@ public final class Fahare extends JavaPlugin implements Listener {
         
         for (DataPack data_pack : Bukkit.getServer().getDataPackManager().getDataPacks()) {
             if (data_pack.getSource() == DataPack.Source.WORLD) {
-                // System.out.println("Title: " + data_pack.getTitle());
-                // System.out.println("Source: " + data_pack.getSource());
-                // System.out.println("Data: " + data_pack);
                 Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), "datapack disable \"file/" + data_pack.getTitle() + "\"");
             }
         }
@@ -304,19 +290,17 @@ public final class Fahare extends JavaPlugin implements Listener {
             
             int numberOfHits = JsonParser.parseString(response.body()).getAsJsonObject().get("total_hits").getAsInt();
             
-            int datapacksToAdd = 10;
-            
             List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
             
-            for (Player player : players) {
-                player.removeResourcePacks();
-            }
+            // for (Player player : players) {
+            //     player.removeResourcePacks();
+            // }
             
             ArrayList<String> datapackIDs = new ArrayList<>();
             
             JsonObject json;
             
-            for (int i = 0; i < datapacksToAdd; i++) {
+            for (int i = 0; i < datapackCount; i++) {
                 
                 int searchIndex = (int)(Math.random() * numberOfHits);
 
@@ -338,17 +322,10 @@ public final class Fahare extends JavaPlugin implements Listener {
                 datapackIDs.add(json.getAsJsonArray("hits").get(0).getAsJsonObject().get("project_id").getAsString());
             }
             
-            if (Math.random() < 0.5) {
-                datapackIDs.add("terralith");
-            }
-            if (Math.random() < 0.5) {
-                datapackIDs.add("incendium");
-            }
-            if (Math.random() < 0.5) {
-                datapackIDs.add("nullscape");
-            }
-            if (Math.random() < 0.15) {
-                datapackIDs.add("randomizer-complete-edition");
+            for (AddedDatapack pack : addedDatapacks) {
+                if (Math.random() < pack.chance) {
+                    datapackIDs.add(pack.name);
+                }
             }
             
             for (String datapackID : datapackIDs) {
@@ -374,9 +351,9 @@ public final class Fahare extends JavaPlugin implements Listener {
                 String fileURL = json.get("foo").getAsJsonArray().get(0).getAsJsonObject().get("files").getAsJsonArray().get(0).getAsJsonObject().get("url").getAsString();
                 // System.out.println(fileURL);
                 
-                for (Player player : players) {
-                    player.addResourcePack(UUID.randomUUID(), fileURL, (byte[]) null, null, true);
-                }
+                // for (Player player : players) {
+                //     player.addResourcePack(UUID.randomUUID(), fileURL, (byte[]) null, null, true);
+                // }
                 
                 // System.out.println("Status code: " + response.statusCode());
                 // System.out.println("Response body:\n" + response.body());
@@ -465,54 +442,7 @@ public final class Fahare extends JavaPlugin implements Listener {
         if (isAlive(player.getUniqueId()))
             return;
         Bukkit.getScheduler().runTaskLater(this, () -> {
-            // player.setGameMode(GameMode.SPECTATOR);
-            // player.spigot().respawn();
             resetCheck(true);
         }, 1);
     }
-
-    // @EventHandler(priority = EventPriority.LOWEST)
-    // public void onEntityPortal(EntityPortalEvent event) {
-    //     Location to = event.getTo();
-    //     if (to == null) return;
-    //     World toWorld = to.getWorld();
-    //     if (toWorld == null) return;
-    //     if (!toWorld.getKey().equals(REAL_OVERWORLD_KEY)) return;
-
-    //     // check if player is coming from the end, and if so just send them to spawn
-    //     if (event.getPortalType() == PortalType.ENDER)
-    //         event.setTo(fakeOverworld().getSpawnLocation());
-    //         // else just update the world
-    //     else
-    //         to.setWorld(fakeOverworld());
-    // }
-
-    // @EventHandler(priority = EventPriority.LOWEST)
-    // public void onPlayerPortal(PlayerPortalEvent event) {
-    //     Location to = event.getTo();
-    //     World toWorld = to.getWorld();
-    //     if (toWorld == null) return;
-    //     if (!toWorld.getKey().equals(REAL_OVERWORLD_KEY)) return;
-
-    //     // check if player is coming from the end, and if so just send them to spawn
-    //     if (event.getCause() == PlayerTeleportEvent.TeleportCause.END_PORTAL)
-    //         event.setTo(fakeOverworld().getSpawnLocation());
-    //         // else just update the world
-    //     else
-    //         to.setWorld(fakeOverworld());
-    // }
-
-    // @EventHandler(priority = EventPriority.LOWEST)
-    // public void onPlayerJoin(PlayerJoinEvent event) {
-    //     Player player = event.getPlayer();
-    //     if (player.getWorld().getKey().equals(REAL_OVERWORLD_KEY))
-    //         player.teleport(fakeOverworld().getSpawnLocation());
-    // }
-
-    // @EventHandler(priority = EventPriority.LOWEST)
-    // public void onPlayerRespawn(PlayerRespawnEvent event) {
-    //     Location destination = event.getRespawnLocation();
-    //     if (destination.getWorld().getKey().equals(REAL_OVERWORLD_KEY))
-    //         event.setRespawnLocation(fakeOverworld().getSpawnLocation());
-    // }
 }
