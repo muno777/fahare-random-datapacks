@@ -1,5 +1,10 @@
 package dev.qixils.fahare;
 
+import java.lang.reflect.Method;
+
+import java.io.IOException;
+import java.nio.file.*;
+
 import cloud.commandframework.Command;
 import cloud.commandframework.bukkit.CloudBukkitCapabilities;
 import cloud.commandframework.execution.CommandExecutionCoordinator;
@@ -80,6 +85,21 @@ public final class Fahare extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        
+        System.out.println("[MyPlugin] Shutdown hook added???????????????????????????");
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                File dir = new File("_do_datapacks");
+                if (dir.exists() && dir.isDirectory()) {
+                    rerollDatapacks();
+                    Path dir2 = Paths.get("_do_datapacks");
+                    Files.deleteIfExists(dir2);
+                }
+                // Files.writeString(Paths.get("shutdown-hook.txt"), "Shutdown hook ran!\n");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }));
         
         // Load config
         loadConfig();
@@ -173,13 +193,37 @@ public final class Fahare extends JavaPlugin implements Listener {
         return !isDead(player);
     }
     
-    private void addDatapacks() {
-        String datapackFolderPath = Bukkit.getServer().getWorldContainer().getAbsolutePath() + "/new_datapacks";
+    private void rerollDatapacks() {
+        // String datapackFolderPath = Bukkit.getServer().getWorldContainer().getAbsolutePath() + "/new_datapacks";
+        String realDatapackFolderPath = Bukkit.getServer().getWorldContainer().getAbsolutePath() + "/world/datapacks";
+        File realDatapackFolder = new File(realDatapackFolderPath);
+        
+        File currentDir = new File(".");
+        File[] folders = currentDir.listFiles((_dir, name) -> name.startsWith("world") && new File(_dir, name).isDirectory());
+
+        if (folders != null) {
+            for (File folder : folders) {
+                System.out.println("Deleting: " + folder.getName());
+                try {
+                    deleteDirectoryRecursively(folder.toPath());
+                } catch (Exception e) {
+                    
+                }
+            }
+        }
+
+        // Ensure 'world' exists
+        try {
+            Files.createDirectories(Paths.get("world/datapacks"));
+        } catch (Exception e) {
+            
+        }
+        
         try {
             HttpClient client = HttpClient.newHttpClient();
             
             // Build the facets as a JSON string
-            String facetsJson = "[[\"versions:1.21.6\"],[\"categories:datapack\"]]";
+            String facetsJson = "[[\"versions:1.21.7\"],[\"categories:datapack\"]]";
             String encodedFacets = URLEncoder.encode(facetsJson, StandardCharsets.UTF_8);
 
             // Build the full URL with facets
@@ -234,7 +278,7 @@ public final class Fahare extends JavaPlugin implements Listener {
                 url = String.format("https://api.modrinth.com/v2/project/%s/version?loaders=%s&game_versions=%s",
                         datapackID,
                         URLEncoder.encode("[\"datapack\"]", StandardCharsets.UTF_8),
-                        URLEncoder.encode("[\"1.21.6\"]", StandardCharsets.UTF_8)
+                        URLEncoder.encode("[\"1.21.7\"]", StandardCharsets.UTF_8)
                 );
 
                 request = HttpRequest.newBuilder()
@@ -253,10 +297,10 @@ public final class Fahare extends JavaPlugin implements Listener {
                     String fileName = Paths.get(new URL(fileURL).getPath()).getFileName().toString();
 
                     // Create full target path
-                    Path targetPath = Paths.get(datapackFolderPath, fileName);
+                    Path targetPath = Paths.get(realDatapackFolderPath, fileName);
 
                     // Create directories if they don't exist
-                    Files.createDirectories(Paths.get(datapackFolderPath));
+                    Files.createDirectories(Paths.get(realDatapackFolderPath));
 
                     // Copy input stream to the target path
                     Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
@@ -269,8 +313,6 @@ public final class Fahare extends JavaPlugin implements Listener {
         } catch (Exception e) {
             System.out.println("Failed to get datapacks");
         }
-        
-        Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), autoRestart ? "restart" : "stop");
     }
 
     public synchronized void reset() {
@@ -300,7 +342,13 @@ public final class Fahare extends JavaPlugin implements Listener {
             }
         }
         
-        addDatapacks();
+        try {
+            Path dir = Paths.get("_do_datapacks");
+            Files.createDirectories(dir);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), autoRestart ? "restart" : "stop");
     }
 
     public void resetCheck(boolean death, Player who) {
@@ -333,36 +381,6 @@ public final class Fahare extends JavaPlugin implements Listener {
         }, 1);
     }
     
-    @Override
-    public void onLoad() {
-        try {
-            File dir = new File("new_datapacks");
-            if (dir.exists() && dir.isDirectory()) {
-                File currentDir = new File(".");
-                File[] folders = currentDir.listFiles((_dir, name) -> name.startsWith("world") && new File(_dir, name).isDirectory());
-
-                if (folders != null) {
-                    for (File folder : folders) {
-                        System.out.println("Deleting: " + folder.getName());
-                        deleteDirectoryRecursively(folder.toPath());
-                    }
-                }
-                
-                Path world = Paths.get("world");
-                Path target = world.resolve("datapacks");
-                Path temp = Paths.get("new_datapacks");
-
-                // Ensure 'world' exists
-                Files.createDirectories(world);
-
-                // Now move 'new_datapacks' into 'world/datapacks'
-                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (Exception e) {
-            // lol
-        }
-    }
-    
     private static void deleteDirectoryRecursively(Path path) throws IOException {
 		if (!Files.exists(path)) return;
 
@@ -372,7 +390,8 @@ public final class Fahare extends JavaPlugin implements Listener {
 				try {
 					Files.delete(p);
 				} catch (IOException e) {
-					System.err.println("Failed to delete " + p + ": " + e.getMessage());
+					// System.err.println("Failed to delete " + p + ": " + e.getMessage());
+                    // lol?
 				}
 			});
 	}
