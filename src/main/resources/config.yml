@@ -26,3 +26,7 @@ added-datapacks: [
   { name: "nullscape", chance: 0.5 },
   { name: "randomizer-complete-edition", chance: 0.15 },
 ]
+
+# Whether to restart the server automatically.
+# If false, the server runs /stop. If true, the server runs /restart.
+auto-restart: false

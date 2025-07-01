@@ -63,38 +63,20 @@ public final class Fahare extends JavaPlugin implements Listener {
         }
     }
 
-    private static final NamespacedKey REAL_OVERWORLD_KEY = NamespacedKey.minecraft("overworld");
     private static final Random RANDOM = new Random();
-    private final NamespacedKey fakeOverworldKey = new NamespacedKey(this, "overworld");
-    private final NamespacedKey limboWorldKey = new NamespacedKey(this, "limbo");
     private final Map<UUID, Integer> deaths = new HashMap<>();
-    private World limboWorld;
     private Path worldContainer;
     private @Nullable Path backupContainer;
     private boolean resetting = false;
+    
     // config
     private boolean backup = true;
     private boolean autoReset = true;
     private boolean anyDeath = false;
+    private boolean autoRestart = false;
     private int lives = 1;
     private int datapackCount = 10;
     private List<AddedDatapack> addedDatapacks = new ArrayList<>();
-
-    private static @NotNull World overworld() {
-        return Objects.requireNonNull(Bukkit.getWorld(REAL_OVERWORLD_KEY), "Overworld not found");
-    }
-
-    private @NotNull World fakeOverworld() {
-        return Objects.requireNonNullElseGet(Bukkit.getWorld(fakeOverworldKey), this::createFakeOverworld);
-    }
-
-    private @NotNull World createFakeOverworld() {
-        // Create fake overworld
-        WorldCreator creator = new WorldCreator(fakeOverworldKey).copy(overworld()).seed(RANDOM.nextLong());
-        World world = Objects.requireNonNull(creator.createWorld(), "Could not load fake overworld");
-        world.setDifficulty(overworld().getDifficulty());
-        return world;
-    }
 
     @Override
     public void onEnable() {
@@ -164,6 +146,7 @@ public final class Fahare extends JavaPlugin implements Listener {
         backup = config.getBoolean("backup", backup);
         autoReset = config.getBoolean("auto-reset", autoReset);
         anyDeath = config.getBoolean("any-death", anyDeath);
+        autoRestart = config.getBoolean("auto-restart", autoRestart);
         lives = Math.max(1, config.getInt("lives", lives));
         datapackCount = config.getInt("datapackCount", datapackCount);
         for (Map<?, ?> entry : config.getMapList("added-datapacks")) {
@@ -172,7 +155,6 @@ public final class Fahare extends JavaPlugin implements Listener {
                 ((Number) entry.get("chance")).floatValue()
             ));
         }
-        // TODO get added-datapacks
     }
 
     public int getDeathsFor(UUID player) {
@@ -190,85 +172,9 @@ public final class Fahare extends JavaPlugin implements Listener {
     public boolean isAlive(UUID player) {
         return !isDead(player);
     }
-
-    private void deleteNextWorld(List<World> worlds, @Nullable Path backupDestination) {
-        // check if all worlds are deleted
-        if (worlds.isEmpty()) {
-            resetting = false;
-            addRandomDatapack();
-            return;
-        }
-
-        // check if worlds are ticking
-        if (Bukkit.isTickingWorlds()) {
-            Bukkit.getScheduler().runTaskLater(this, () -> deleteNextWorld(worlds, backupDestination), 1);
-            return;
-        }
-
-        // get world data
-        World world = worlds.remove(0);
-        String worldName = world.getName();
-        Component worldKey = text(worldName);
-        WorldCreator creator = new WorldCreator(worldName, world.getKey());
-        creator.copy(world).seed(RANDOM.nextLong());
-
-        // unload world
-        if (Bukkit.unloadWorld(world, backup)) {
-            try {
-                Path worldFolder = worldContainer.resolve(worldName);
-                Component arg = text(worldFolder.toString());
-                if (backupDestination != null) {
-                    // Backup world
-                    getComponentLogger().info(translatable("fhr.log.info.backup", arg));
-                    Files.move(worldFolder, backupDestination.resolve(worldName));
-                } else {
-                    // Delete world
-                    getComponentLogger().info(translatable("fhr.log.info.delete", arg));
-                    IOUtils.deleteDirectory(worldFolder);
-                }
-            } catch (Exception e) {
-                Component error = translatable("fhr.chat.error", NamedTextColor.RED, worldKey);
-                Audience.audience(Bukkit.getOnlinePlayers()).sendMessage(error);
-                getComponentLogger().warn(error, e);
-            }
-        } else {
-            Bukkit.getServer().sendMessage(translatable("fhr.chat.error", NamedTextColor.RED, worldKey));
-        }
-
-        Bukkit.getScheduler().runTaskLater(this, () -> deleteNextWorld(worlds, backupDestination), 1);
-    }
     
-    private void addRandomDatapack() {
-        String datapackFolderPath = Bukkit.getServer().getWorldContainer().getAbsolutePath() + "/world/datapacks";
-        File datapackFolder = new File(datapackFolderPath);
-        
-        for (DataPack data_pack : Bukkit.getServer().getDataPackManager().getDataPacks()) {
-            if (data_pack.getSource() == DataPack.Source.WORLD) {
-                Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), "datapack disable \"file/" + data_pack.getTitle() + "\"");
-            }
-        }
-        
-        // delete all existing .zip datapacks
-		if (datapackFolder.isDirectory()) {
-			File[] files = datapackFolder.listFiles();
-			if (files != null) {
-				for (File file : files) {
-					if (file.isFile()) {
-						file.delete();
-					}
-				}
-			}
-		}
-        
-        Bukkit.unloadWorld(Bukkit.getWorld("world"), false);
-        try {
-            IOUtils.deleteDirectory(new File(Bukkit.getServer().getWorldContainer().getAbsolutePath() + "/world").toPath());
-        } catch (Exception e) {
-            
-        }
-        
-        // add datapacks
-        
+    private void addDatapacks() {
+        String datapackFolderPath = Bukkit.getServer().getWorldContainer().getAbsolutePath() + "/new_datapacks";
         try {
             HttpClient client = HttpClient.newHttpClient();
             
@@ -289,12 +195,6 @@ public final class Fahare extends JavaPlugin implements Listener {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             
             int numberOfHits = JsonParser.parseString(response.body()).getAsJsonObject().get("total_hits").getAsInt();
-            
-            List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
-            
-            // for (Player player : players) {
-            //     player.removeResourcePacks();
-            // }
             
             ArrayList<String> datapackIDs = new ArrayList<>();
             
@@ -329,8 +229,6 @@ public final class Fahare extends JavaPlugin implements Listener {
             }
             
             for (String datapackID : datapackIDs) {
-                
-                // System.out.println(json.getAsJsonArray("hits").get(0));
 
                 // Build the full URL with facets
                 url = String.format("https://api.modrinth.com/v2/project/%s/version?loaders=%s&game_versions=%s",
@@ -349,14 +247,6 @@ public final class Fahare extends JavaPlugin implements Listener {
                 json = JsonParser.parseString("{foo:" + response.body() + "}").getAsJsonObject();
                 
                 String fileURL = json.get("foo").getAsJsonArray().get(0).getAsJsonObject().get("files").getAsJsonArray().get(0).getAsJsonObject().get("url").getAsString();
-                // System.out.println(fileURL);
-                
-                // for (Player player : players) {
-                //     player.addResourcePack(UUID.randomUUID(), fileURL, (byte[]) null, null, true);
-                // }
-                
-                // System.out.println("Status code: " + response.statusCode());
-                // System.out.println("Response body:\n" + response.body());
                 
                 try (InputStream in = new URL(fileURL).openStream()) {
                     // Extract the file name from the URL
@@ -380,7 +270,7 @@ public final class Fahare extends JavaPlugin implements Listener {
             System.out.println("Failed to get datapacks");
         }
         
-        Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), "restart");
+        Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), autoRestart ? "restart" : "stop");
     }
 
     public synchronized void reset() {
@@ -410,18 +300,14 @@ public final class Fahare extends JavaPlugin implements Listener {
             }
         }
         
-        // unload and delete worlds
-        List<World> worlds = Bukkit.getWorlds().stream()
-                .filter(w -> !w.getKey().equals(limboWorldKey) && !w.getKey().equals(REAL_OVERWORLD_KEY))
-                .collect(Collectors.toList());
-        
-        deleteNextWorld(worlds, backupDestination);
+        addDatapacks();
     }
 
-    public void resetCheck(boolean death) {
+    public void resetCheck(boolean death, Player who) {
         if (!autoReset)
             return;
         if (anyDeath && death) {
+            Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), "kick @a " + who.getName() + " died :(");
             reset();
             return;
         }
@@ -432,6 +318,7 @@ public final class Fahare extends JavaPlugin implements Listener {
             if (isAlive(player.getUniqueId()))
                 return;
         }
+        Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), "kick @a Everybody died :(");
         reset();
     }
 
@@ -442,7 +329,7 @@ public final class Fahare extends JavaPlugin implements Listener {
         if (isAlive(player.getUniqueId()))
             return;
         Bukkit.getScheduler().runTaskLater(this, () -> {
-            resetCheck(true);
+            resetCheck(true, player);
         }, 1);
     }
 }
