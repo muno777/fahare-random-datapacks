@@ -332,4 +332,48 @@ public final class Fahare extends JavaPlugin implements Listener {
             resetCheck(true, player);
         }, 1);
     }
+    
+    @Override
+    public void onLoad() {
+        try {
+            File dir = new File("new_datapacks");
+            if (dir.exists() && dir.isDirectory()) {
+                File currentDir = new File(".");
+                File[] folders = currentDir.listFiles((_dir, name) -> name.startsWith("world") && new File(_dir, name).isDirectory());
+
+                if (folders != null) {
+                    for (File folder : folders) {
+                        System.out.println("Deleting: " + folder.getName());
+                        deleteDirectoryRecursively(folder.toPath());
+                    }
+                }
+                
+                Path world = Paths.get("world");
+                Path target = world.resolve("datapacks");
+                Path temp = Paths.get("new_datapacks");
+
+                // Ensure 'world' exists
+                Files.createDirectories(world);
+
+                // Now move 'new_datapacks' into 'world/datapacks'
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception e) {
+            // lol
+        }
+    }
+    
+    private static void deleteDirectoryRecursively(Path path) throws IOException {
+		if (!Files.exists(path)) return;
+
+		Files.walk(path)
+			.sorted((a, b) -> b.compareTo(a)) // Delete children before parent
+			.forEach(p -> {
+				try {
+					Files.delete(p);
+				} catch (IOException e) {
+					System.err.println("Failed to delete " + p + ": " + e.getMessage());
+				}
+			});
+	}
 }
